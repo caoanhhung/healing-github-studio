@@ -59,24 +59,25 @@ def get_gsheet():
 
 
 def suggest_trending_topics():
-    """Dùng Gemini kết hợp Google Search Grounding để tìm 5 chủ đề chữa lành đang được quan tâm."""
+    """Dùng Gemini đề xuất 5 chủ đề chữa lành & tâm lý đời sống phù hợp thời điểm hiện tại."""
     api_key = get_secret("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
     today_str = date.today().strftime("%d/%m/%Y")
     prompt = f"""
-    Hôm nay là ngày {today_str}. Hãy tìm kiếm xu hướng tâm lý, đời sống, áp lực tinh thần và các chủ đề chữa lành, chánh niệm đang được người Việt quan tâm nhiều trên mạng xã hội gần đây.
-    Từ đó, đề xuất 5 ý tưởng chủ đề bài viết sâu sắc, chạm cảm xúc, phù hợp với thương hiệu 'Cao Anh Hùng Healing'.
+    Hôm nay là ngày {today_str}. Hãy đóng vai chuyên gia tâm lý và người sáng tạo nội dung chánh niệm.
+    Dựa trên nhịp sống, tâm lý xã hội phổ biến của người Việt ở thời điểm hiện tại trong năm (như áp lực công việc, mệt mỏi số, kiệt sức cuối năm, kết nối gia đình, tìm lại bình yên nội tâm), hãy đề xuất 5 ý tưởng chủ đề bài viết sâu sắc, chạm cảm xúc, phù hợp với thương hiệu 'Cao Anh Hùng Healing'.
     Yêu cầu: Mỗi chủ đề viết thành một câu gợi mở ngắn gọn (10-18 từ), không đánh số thứ tự, trả về đúng 5 dòng.
     """
-    res = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            tools=[types.Tool(google_search=types.GoogleSearch())]
-        ),
-    )
-    lines = [line.strip().lstrip("-•*12345. ") for line in res.text.strip().splitlines() if line.strip()]
-    return lines[:5]
+    try:
+        res = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        lines = [line.strip().lstrip("-•*12345. ") for line in res.text.strip().splitlines() if line.strip()]
+        return lines[:5]
+    except Exception as e:
+        st.error(f"Không thể lấy gợi ý lúc này: {e}")
+        return []
 
 
 def get_unsplash_images_batch(query, count=10):
