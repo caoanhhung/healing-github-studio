@@ -1,7 +1,6 @@
 streamlit
 google-genai
-requests
 gspread
 google-auth
+requests
 python-dotenv
-python-substack
