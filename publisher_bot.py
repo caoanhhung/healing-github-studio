@@ -1,7 +1,10 @@
 import os
 import json
+import smtplib
 import requests
 import gspread
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime, timezone, timedelta
 from google.oauth2.service_account import Credentials
 
@@ -28,7 +31,6 @@ def publish_to_facebook(caption: str, image_url: str):
     if not page_id or not page_token or page_id == "skip" or page_token == "skip":
         raise ValueError("Chưa cấu hình FB_PAGE_ID hoặc FB_PAGE_TOKEN hợp lệ.")
 
-    # Tải ảnh về RAM trước để upload trực tiếp (tránh Facebook chặn link redirect từ Unsplash)
     img_bytes = None
     if image_url:
         try:
@@ -55,40 +57,57 @@ def publish_to_facebook(caption: str, image_url: str):
         )
 
     if res.status_code != 200:
-        # In ra thông báo lỗi chính xác từ Meta API để dễ kiểm soát
         raise RuntimeError(f"Facebook API ({res.status_code}): {res.text}")
 
     return res.json()
 
 
-def publish_to_substack(title: str, subtitle: str, content: str, image_url: str):
-    from substack import Api
-    from substack.post import Post
+def publish_to_substack_via_email(title: str, subtitle: str, content: str, image_url: str):
+    sender = os.getenv("GMAIL_SENDER", "").strip()
+    app_pwd = os.getenv("GMAIL_APP_PASSWORD", "").strip()
+    recipient = os.getenv("SUBSTACK_POST_EMAIL", "").strip()
 
-    pub_url = os.getenv("SUBSTACK_PUBLICATION_URL", "").strip().rstrip("/")
-    sid = os.getenv("SUBSTACK_SID", "").strip()
+    if not sender or not app_pwd or not recipient:
+        raise ValueError("Chưa cấu hình GMAIL_SENDER, GMAIL_APP_PASSWORD hoặc SUBSTACK_POST_EMAIL.")
 
-    if not pub_url or not sid:
-        raise ValueError("Chưa cấu hình SUBSTACK_PUBLICATION_URL hoặc SUBSTACK_SID.")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"[Substack Draft] {title}"
+    msg["From"] = sender
+    msg["To"] = recipient
 
-    api = Api(
-        cookies_string=f"substack.sid={sid}",
-        publication_url=pub_url,
+    paragraphs_html = "".join(
+        f"<p style='font-size:16px;line-height:1.7;margin-bottom:16px;'>{p.strip()}</p>"
+        for p in content.split("\n")
+        if p.strip()
     )
-    user_id = api.get_user_id()
-    post = Post(title=title, subtitle=subtitle, user_id=user_id)
+    img_html = (
+        f"<p style='margin:20px 0;'><img src='{image_url}' style='max-width:100%;border-radius:8px;'/></p>"
+        if image_url
+        else ""
+    )
+    subtitle_html = (
+        f"<h3 style='color:#555;font-weight:normal;margin-top:4px;'><em>{subtitle}</em></h3>"
+        if subtitle
+        else ""
+    )
 
-    if image_url:
-        post.add({"type": "captioned-image", "src": image_url})
+    html_body = f"""
+    <html>
+      <body style="font-family: Georgia, serif; color: #222; max-width: 680px; margin: auto; padding: 16px;">
+        <h1 style="margin-bottom: 8px;">{title}</h1>
+        {subtitle_html}
+        {img_html}
+        {paragraphs_html}
+      </body>
+    </html>
+    """
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    for para in content.split("\n"):
-        if para.strip():
-            post.add({"type": "paragraph", "content": para.strip()})
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+        server.login(sender, app_pwd)
+        server.sendmail(sender, recipient, msg.as_string())
 
-    draft = api.post_draft(post.get_draft())
-    api.prepublish_draft(draft.get("id"))
-    api.publish_draft(draft.get("id"))
-    return draft.get("id")
+    return f"Đã gửi bản thảo '{title}' tới {recipient}"
 
 
 def main():
@@ -102,8 +121,6 @@ def main():
         print("Chưa có dữ liệu bài viết nào.")
         return
 
-    # Giả định cấu trúc cột:
-    # 0: Status | 1: Date | 2: Time | 3: Platform | 4: Title | 5: Hook | 6: Content | 7: Tags | 8: Image_URL
     for row_idx in range(1, len(rows)):
         row = rows[row_idx]
         if len(row) < 7:
@@ -139,8 +156,8 @@ def main():
                 sheet.update_cell(row_idx + 1, 1, "Published")
 
             elif "substack" in platform:
-                post_id = publish_to_substack(title, hook, content, img_url)
-                print(f"✅ Đã đăng Substack thành công dòng {row_idx + 1} (ID: {post_id})")
+                res_msg = publish_to_substack_via_email(title, hook, content, img_url)
+                print(f"✅ Substack dòng {row_idx + 1}: {res_msg}")
                 sheet.update_cell(row_idx + 1, 1, "Published")
 
         except Exception as e:
