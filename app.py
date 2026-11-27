@@ -7,27 +7,41 @@ import streamlit as st
 from datetime import datetime, date, time, timedelta
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from google.oauth2.service_account import Credentials
 
 load_dotenv()
 
 st.set_page_config(page_title="Cao Anh Hùng — Healing Studio", page_icon="🌿", layout="wide")
 
-BRAND_PROMPT = """
-Bạn là Cao Anh Hùng — người chia sẻ về chánh niệm thực chứng, chữa lành cảm xúc và sự tỉnh thức trong đời sống hiện đại.
-Giọng văn: Trầm ấm, chân thành, sâu sắc, không giáo điều, câu từ tinh gọn và chạm vào nội tâm.
-"""
-DEFAULT_HASHTAGS = "#CaoAnhHung #ChuaLanh #ChanhNiem #SongTinhThuc #BinhYen"
-
 
 def get_secret(key: str, default=None):
-    """Ưu tiên đọc khóa từ Streamlit Cloud Secrets, nếu không có thì đọc từ biến môi trường."""
     try:
         if key in st.secrets:
             return st.secrets[key]
     except Exception:
         pass
     return os.getenv(key, default)
+
+
+# Lớp bảo vệ mật khẩu (chỉ kích hoạt nếu có khai báo APP_PASSWORD trong Secrets)
+app_pwd = get_secret("APP_PASSWORD")
+if app_pwd and not st.session_state.get("authenticated"):
+    st.title("🌿 Cao Anh Hùng — Healing Studio")
+    pwd_input = st.text_input("🔒 Nhập mật khẩu quản trị:", type="password")
+    if st.button("Đăng nhập", type="primary"):
+        if pwd_input == app_pwd:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("❌ Mật khẩu không chính xác!")
+    st.stop()
+
+BRAND_PROMPT = """
+Bạn là Cao Anh Hùng — người chia sẻ về chánh niệm thực chứng, chữa lành cảm xúc và sự tỉnh thức trong đời sống hiện đại.
+Giọng văn: Trầm ấm, chân thành, sâu sắc, không giáo điều, câu từ tinh gọn và chạm vào nội tâm.
+"""
+DEFAULT_HASHTAGS = "#CaoAnhHung #ChuaLanh #ChanhNiem #SongTinhThuc #BinhYen"
 
 
 def get_gsheet():
@@ -42,6 +56,27 @@ def get_gsheet():
     client = gspread.authorize(creds)
     sheet_id = get_secret("GOOGLE_SHEET_ID")
     return client.open_by_key(sheet_id).sheet1
+
+
+def suggest_trending_topics():
+    """Dùng Gemini kết hợp Google Search Grounding để tìm 5 chủ đề chữa lành đang được quan tâm."""
+    api_key = get_secret("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
+    today_str = date.today().strftime("%d/%m/%Y")
+    prompt = f"""
+    Hôm nay là ngày {today_str}. Hãy tìm kiếm xu hướng tâm lý, đời sống, áp lực tinh thần và các chủ đề chữa lành, chánh niệm đang được người Việt quan tâm nhiều trên mạng xã hội gần đây.
+    Từ đó, đề xuất 5 ý tưởng chủ đề bài viết sâu sắc, chạm cảm xúc, phù hợp với thương hiệu 'Cao Anh Hùng Healing'.
+    Yêu cầu: Mỗi chủ đề viết thành một câu gợi mở ngắn gọn (10-18 từ), không đánh số thứ tự, trả về đúng 5 dòng.
+    """
+    res = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())]
+        ),
+    )
+    lines = [line.strip().lstrip("-•*12345. ") for line in res.text.strip().splitlines() if line.strip()]
+    return lines[:5]
 
 
 def get_unsplash_images_batch(query, count=10):
@@ -97,9 +132,21 @@ st.title("🌿 Cao Anh Hùng — Healing Content Studio (GitHub Auto)")
 
 with st.sidebar:
     start_date = st.date_input("Ngày bắt đầu rải lịch:", value=date.today() + timedelta(days=1))
+    st.divider()
+    if st.button("💡 Gợi ý 5 chủ đề Trend hôm nay", use_container_width=True):
+        with st.spinner("Đang quét xu hướng tâm lý & đời sống..."):
+            st.session_state["suggested_topics"] = suggest_trending_topics()
+
+# Hiển thị các chủ đề gợi ý dạng nút bấm chọn nhanh
+if st.session_state.get("suggested_topics"):
+    st.caption("✨ Bấm chọn nhanh một chủ đề đang được quan tâm:")
+    for i, s_topic in enumerate(st.session_state["suggested_topics"]):
+        if st.button(f"📌 {s_topic}", key=f"sug_{i}"):
+            st.session_state["topic_input"] = s_topic
+            st.rerun()
 
 c1, c2 = st.columns([4, 1])
-topic = c1.text_input("Nhập chủ đề hoặc ý tưởng bài viết:")
+topic = c1.text_input("Nhập chủ đề hoặc ý tưởng bài viết:", key="topic_input")
 num_posts = c2.number_input("Số bài / kênh:", min_value=1, max_value=10, value=1)
 
 if st.button("✨ Tạo nội dung & Ảnh tự động", type="primary") and topic:
