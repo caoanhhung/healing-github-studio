@@ -1,0 +1,31 @@
+name: Auto Publish Healing Content
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # Tự động chạy mỗi 15 phút
+  workflow_dispatch: # Cho phép bấm nút chạy thử thủ công trên GitHub bất cứ lúc nào
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Publisher Bot
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          SUBSTACK_PUBLICATION_URL: ${{ secrets.SUBSTACK_PUBLICATION_URL }}
+          SUBSTACK_SID: ${{ secrets.SUBSTACK_SID }}
+        run: python publisher_bot.py

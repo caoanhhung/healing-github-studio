@@ -1,0 +1,7 @@
+streamlit
+google-genai
+requests
+gspread
+google-auth
+python-dotenv
+python-substack
