@@ -20,11 +20,28 @@ Giọng văn: Trầm ấm, chân thành, sâu sắc, không giáo điều, câu 
 DEFAULT_HASHTAGS = "#CaoAnhHung #ChuaLanh #ChanhNiem #SongTinhThuc #BinhYen"
 
 
+def get_secret(key: str, default=None):
+    """Ưu tiên đọc khóa từ Streamlit Cloud Secrets, nếu không có thì đọc từ biến môi trường."""
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
 def get_gsheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_file("service_account.json", scopes=scopes)
+    creds_json_str = get_secret("GOOGLE_CREDENTIALS_JSON")
+    if creds_json_str:
+        creds_dict = json.loads(creds_json_str)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    else:
+        creds = Credentials.from_service_account_file("service_account.json", scopes=scopes)
+
     client = gspread.authorize(creds)
-    return client.open_by_key(os.getenv("GOOGLE_SHEET_ID")).sheet1
+    sheet_id = get_secret("GOOGLE_SHEET_ID")
+    return client.open_by_key(sheet_id).sheet1
 
 
 def get_unsplash_images_batch(query, count=10):
@@ -35,7 +52,7 @@ def get_unsplash_images_batch(query, count=10):
         "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1080",
         "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1080",
     ]
-    key = os.getenv("UNSPLASH_ACCESS_KEY")
+    key = get_secret("UNSPLASH_ACCESS_KEY")
     if not key:
         return [fallback[i % len(fallback)] for i in range(count)]
     try:
@@ -54,7 +71,8 @@ def get_unsplash_images_batch(query, count=10):
 
 
 def generate_posts(topic, num_posts):
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    api_key = get_secret("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
     prompt = f"""
     {BRAND_PROMPT}
     Chủ đề gốc: {topic}
